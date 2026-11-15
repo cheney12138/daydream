@@ -75,6 +75,11 @@ function dedupeSorted(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
+/** adapter 降级时可能送来 null/undefined，统一按空数组处理 */
+function safeArray(values: string[] | null | undefined): string[] {
+  return Array.isArray(values) ? values : [];
+}
+
 export class BuildDailyReport implements ReportQueries {
   constructor(private readonly source: MemorySource) {}
 
@@ -157,7 +162,7 @@ export class BuildDailyReport implements ReportQueries {
 
     const allFiles = new Set<string>();
     for (const o of observations) {
-      for (const f of o.filesModified) allFiles.add(f);
+      for (const f of safeArray(o.filesModified)) allFiles.add(f);
     }
 
     return {
@@ -202,7 +207,7 @@ export class BuildDailyReport implements ReportQueries {
     for (const o of observations) {
       const b = bucketOf(o.project);
       b.observations.push(o);
-      for (const f of o.filesModified) b.files.add(f);
+      for (const f of safeArray(o.filesModified)) b.files.add(f);
     }
     for (const s of summaries) bucketOf(s.project).summaries.push(s);
     for (const t of toolUses) {
@@ -267,8 +272,8 @@ export class BuildDailyReport implements ReportQueries {
       type: o.type,
       title: o.title,
       narrative: o.narrative,
-      facts: o.facts,
-      filesModified: o.filesModified,
+      facts: safeArray(o.facts),
+      filesModified: safeArray(o.filesModified),
       sensitive,
       collapsed: sensitive || o.type === 'discovery',
     };
