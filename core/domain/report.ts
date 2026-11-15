@@ -76,7 +76,7 @@ export interface ProjectSection {
 export interface Headline {
   date: string;
   projectCount: number;
-  /** 当天去重会话数（observations + summaries 的 memory_session_id 并集） */
+  /** 当天去重会话数，口径 = 当天有 observation 的会话（F7 统一） */
   sessionCount: number;
   observationCount: number;
   /** 全天 files_modified 去重数 */

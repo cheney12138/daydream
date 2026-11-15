@@ -152,12 +152,12 @@ export class BuildDailyReport implements ReportQueries {
       if (o.type === 'bugfix') bugfixCount += 1;
     }
 
+    // 口径统一（F7）：会话数 = 当天有 observation 的去重会话数。
+    // session_summaries 独有的会话（如 openai-compat 全程零 observation）不计入，
+    // 否则同一数字在 API 与页面会出现两套口径；摘要仍用于叙事段展示。
     const sessionIds = new Set<string>();
     for (const o of observations) {
       if (o.memorySessionId) sessionIds.add(o.memorySessionId);
-    }
-    for (const s of summaries) {
-      if (s.memorySessionId) sessionIds.add(s.memorySessionId);
     }
 
     const allFiles = new Set<string>();
@@ -222,10 +222,10 @@ export class BuildDailyReport implements ReportQueries {
       sections.push({
         project,
         rawProjects: [...b.rawProjects].sort(),
-        sessionCount: new Set([
-          ...b.observations.map((o) => o.memorySessionId),
-          ...b.summaries.map((s) => s.memorySessionId),
-        ].filter((id) => id.length > 0)).size,
+        // 口径同 headline：只数有 observation 的会话
+        sessionCount: new Set(
+          b.observations.map((o) => o.memorySessionId).filter((id) => id.length > 0),
+        ).size,
         filesModified: dedupeSorted(b.files),
         filesModifiedCount: b.files.size,
         toolUses: [...b.toolUses.entries()]
