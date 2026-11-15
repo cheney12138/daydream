@@ -84,7 +84,7 @@ const STYLE = `
   --sans: -apple-system, "PingFang SC", "Hiragino GB", "Microsoft YaHei", system-ui, sans-serif;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.65 var(--sans); padding: var(--s4) var(--s2) 96px; }
 .page { max-width: 780px; margin: 0 auto; }
 a { color: inherit; }
@@ -100,6 +100,15 @@ a { color: inherit; }
 .proj-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .proj-nav a { font-family: var(--mono); font-size: 12px; text-decoration: none; color: var(--ink-2); background: var(--card); border: 1px solid var(--border); border-radius: 99px; padding: 1px 10px; }
 .proj-nav a:hover { color: var(--accent); border-color: var(--accent); }
+.proj-nav a b { font-weight: 600; color: var(--accent); margin-left: 4px; }
+
+/* 改动文件清单（工程维度核心证据） */
+.files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--s2); padding: var(--s1) var(--s2); background: var(--inset); border-radius: 6px; }
+.file-chip { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-more { font-size: 11.5px; }
+.files-more summary { cursor: pointer; color: var(--ink-3); font-family: var(--mono); }
+.files-more summary:hover { color: var(--accent); }
+.files-more .file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .date-nav .arrow { font-family: var(--mono); font-size: 15px; text-decoration: none; color: var(--ink-2); padding: 2px 8px; border-radius: 6px; }
 .date-nav .arrow:hover { background: var(--card); color: var(--ink); }
 .date-nav .today { font-family: var(--mono); font-size: 17px; font-weight: 600; letter-spacing: .02em; }
@@ -275,7 +284,7 @@ function headlineHtml(report: DailyReport): string {
 
   return `
   <h1 class="day-headline">
-    今天 <span class="n">${h.projectCount}</span> 个项目<span class="sep">·</span><span class="n">${h.sessionCount}</span> 个会话<span class="sep">·</span>${changeCountHtml}<span class="sep">·</span>${eventCountHtml}<span class="sep">·</span><span class="n">${h.bugfixCount}</span> 个 bugfix
+    今天改动了 <span class="n">${h.projectCount}</span> 个项目<span class="sep">·</span>${changeCountHtml}<span class="sep">·</span>${eventCountHtml}<span class="sep">·</span><span class="n">${h.bugfixCount}</span> 个 bugfix
   </h1>`;
 }
 
@@ -315,7 +324,7 @@ function timeRange(project: ProjectSection): string {
   return `${first.time}–${last.time}`;
 }
 
-/** 模块③叙事段：✓ 完成了什么 / → 下一步（session_summaries 原文，多会话多行） */
+/** 模块③叙事段：✓ 完成了什么 / → 下一步（摘要原文，可多行） */
 function narrativeHtml(project: ProjectSection): string {
   const rows: string[] = [];
   for (const s of project.summaries) {
@@ -428,28 +437,38 @@ function timelineItemHtml(t: TimelineItem): string {
   </li>`;
 }
 
-/** 模块③：项目分节卡片（摘要版：叙事 + 统计 + 关键事件，长时间线去全量页） */
+/** 模块③：项目分节卡片（工程维度：改了什么文件、干了什么事） */
 function projectHtml(project: ProjectSection, index: number, date: string): string {
   const degraded = project.summaries.length === 0;
   const classes = degraded ? 'project degraded' : 'project';
   const flag = degraded ? '<span class="proj-flag">无会话摘要 · 降级为标题列表</span>' : '';
   const range = timeRange(project);
-  const meta = `<span class="proj-meta"><span class="mono">${project.sessionCount}</span> 会话${range ? ` · <span class="mono">${esc(range)}</span>` : ''}</span>`;
+  const meta = `<span class="proj-meta"><span class="mono">${project.filesModified.length}</span> 个文件改动 · <span class="mono">${project.timeline.length}</span> 条事件${range ? ` · <span class="mono">${esc(range)}</span>` : ''}</span>`;
   const rawNote =
     project.rawProjects.length > 1
       ? `<span class="proj-flag">合并自 ${project.rawProjects.map(esc).join(' + ')}</span>`
       : '';
   return `
-  <section class="${classes}" aria-labelledby="proj-${index}">
+  <section class="${classes}" id="proj-${index}">
     <div class="proj-head">
-      <h2 class="proj-name" id="proj-${index}">${esc(project.project)}</h2>
+      <h2 class="proj-name">${esc(project.project)}</h2>
       ${meta}${rawNote}${flag}
     </div>
     ${narrativeHtml(project)}
-    ${toolStatsHtml(project)}
+    ${filesHtml(project)}
     ${typeBarHtml(project)}
     ${timelineSummaryHtml(project, index, date)}
   </section>`;
+}
+
+/** 改动文件清单（工程维度的核心证据；长列表折叠） */
+function filesHtml(project: ProjectSection): string {
+  const files = project.filesModified;
+  if (files.length === 0) return '';
+  const MAX = 8;
+  const shown = files.slice(0, MAX).map((f) => `<span class="file-chip">${esc(f)}</span>`).join('');
+  const rest = files.length > MAX ? `<details class="files-more"><summary>还有 ${files.length - MAX} 个文件</summary><span class="file-list">${files.slice(MAX).map((f) => `<span class="file-chip">${esc(f)}</span>`).join('')}</span></details>` : '';
+  return `<div class="files">${shown}${rest}</div>`;
 }
 
 /** 模块⑥：空态（status 芯片随采集状态切换 warn/ok 变体） */
