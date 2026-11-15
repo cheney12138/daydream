@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<!-- ══════════════════════════════════════════════════════════════════
+  daily-report-helper · 日报页面视觉稿（F6，静态假数据）
+
+  对应 DESIGN.md §3 三层金字塔：
+    ① 天级头条（纯计数，部分计数可点开验证）
+    ② 项目分节（叙事段 + 动作统计 + 类型分布条）
+    ③ 事件时间线（type 徽标 + 时间 + 标题，discovery 默认折叠）
+
+  另含：健康声明横幅 / 条目详情展开 / 空态示意 / 敏感条目折叠示意
+
+  结构约定：每个模块由「模块N」注释标界，模块内部顺序即 DOM 顺序，
+  便于 F7 改造为 page.ts 服务端模板。交互只用 details/summary + 少量 JS。
+══════════════════════════════════════════════════════════════════ -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日报 · 2026-11-15 · daily-report</title>
+<style>
+/* ───────────────────────── 设计令牌 ─────────────────────────
+   层级 ≤3 层：页面底色 → 白卡片（描边分隔，不投影） → 卡内浅底内嵌
+   间距只用 8/16/24/32 */
+:root {
+  --bg:            #f6f5f1;
+  --card:          #ffffff;
+  --inset:         #f7f6f2;   /* 卡内第 3 层：详情 / 内嵌块 */
+  --border:        #e4e2da;
+  --border-strong: #c9c6bb;
+  --ink:           #23211b;
+  --ink-2:         #6e6b60;
+  --ink-3:         #a09c8f;
+  --accent:        #3457b2;
+  --warn-ink:      #8a4d0b;
+  --warn-bg:       #fbf2e0;
+  --warn-border:   #ecd9b4;
+
+  /* type 徽标：低饱和底色 + 深字，discovery 刻意最灰（降级语义） */
+  --c-bugfix-ink: #a33a22;  --c-bugfix-bg: #f9eae4;
+  --c-feature-ink:#25704a;  --c-feature-bg:#e7f1ea;
+  --c-decision-ink:#5f43a8; --c-decision-bg:#efebf8;
+  --c-change-ink: #2e5494;  --c-change-bg: #e8eef7;
+  --c-refactor-ink:#8a6415; --c-refactor-bg:#f8f1de;
+  --c-discovery-ink:#75726a;--c-discovery-bg:#efede6;
+  --c-sensitive-ink:#8a4d0b;--c-sensitive-bg:#fbf2e0;
+
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.65 var(--sans);
+  padding: var(--s4) var(--s2) 96px;
+}
+.page { max-width: 780px; margin: 0 auto; }
+a { color: inherit; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ───────────────────────── 模块①：顶栏 + 日期导航 ───────────────────────── */
+.site-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: var(--s3);
+}
+.wordmark { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--ink-2); }
+.wordmark b { color: var(--ink); font-weight: 600; }
+.src-note { font-size: 12px; color: var(--ink-3); }
+
+.date-nav {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-bottom: var(--s2);
+}
+.date-nav .arrow {
+  font-family: var(--mono); font-size: 15px; text-decoration: none;
+  color: var(--ink-2); padding: 2px 8px; border-radius: 6px;
+}
+.date-nav .arrow:hover { background: var(--card); color: var(--ink); }
+.date-nav .today { font-family: var(--mono); font-size: 17px; font-weight: 600; letter-spacing: .02em; }
+.date-nav .weekday { font-size: 13px; color: var(--ink-2); margin-left: 2px; }
+
+/* ───────────────────────── 模块①：天级头条 ───────────────────────── */
+/* 纯计数一行，零失真；可验证的计数用 inline details（虚线下划线 = 可点开） */
+.day-headline {
+  font-size: 21px; font-weight: 600; line-height: 1.6;
+  margin-bottom: var(--s3);
+}
+.day-headline details { display: inline-block; }
+.day-headline summary {
+  list-style: none; cursor: pointer; border-bottom: 1.5px dotted var(--border-strong);
+  font-variant-numeric: tabular-nums;
+}
+.day-headline summary::-webkit-details-marker { display: none; }
+.day-headline summary:hover { border-bottom-color: var(--accent); color: var(--accent); }
+.day-headline .n { font-family: var(--mono); font-size: 23px; padding: 0 1px; }
+.day-headline .sep { color: var(--ink-3); font-weight: 400; padding: 0 6px; }
+/* 计数点开后的验证列表（内嵌第 3 层） */
+.count-panel {
+  margin-top: var(--s1); background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: var(--s2); font-size: 13px; font-weight: 400;
+}
+.count-panel ul { list-style: none; }
+.count-panel li { padding: 2px 0; color: var(--ink-2); display: flex; gap: var(--s1); }
+.count-panel li b { color: var(--ink); font-weight: 500; min-width: 8em; }
+.count-panel .mono { font-size: 12px; }
+
+/* ───────────────────────── 模块②：健康声明横幅 ───────────────────────── */
+.health {
+  display: flex; gap: var(--s1); align-items: baseline;
+  background: var(--warn-bg); border: 1px solid var(--warn-border);
+  border-left: 3px solid var(--warn-ink);
+  border-radius: 6px; padding: var(--s1) var(--s2);
+  margin-bottom: var(--s4); font-size: 13px; color: var(--warn-ink);
+}
+.health .tag { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
+.health .time { font-family: var(--mono); }
+.health p { flex: 1; }
+.health .why { color: var(--warn-ink); opacity: .75; }
+
+/* ───────────────────────── 模块③：项目分节卡片 ───────────────────────── */
+.project {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: var(--s3); margin-bottom: var(--s2);
+}
+.project.degraded { border-style: dashed; }   /* 无会话摘要的降级项目 */
+.proj-head { display: flex; align-items: baseline; gap: var(--s1); flex-wrap: wrap; margin-bottom: var(--s2); }
+.proj-name { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+.proj-meta { font-size: 12px; color: var(--ink-2); }
+.proj-meta .mono { font-size: 12px; }
+.proj-flag { font-size: 11px; color: var(--ink-3); border: 1px dashed var(--border-strong); border-radius: 4px; padding: 0 6px; }
+
+/* 叙事段：✓ 完成了什么 / → 下一步 —— session_summaries 原文搬运 */
+.narrative { margin-bottom: var(--s2); }
+.narrative .row { display: flex; gap: var(--s1); padding: 3px 0; }
+.narrative .row + .row { margin-top: 2px; }
+.narrative .glyph { font-family: var(--mono); flex: none; width: 1.4em; text-align: center; }
+.narrative .glyph.done { color: var(--c-feature-ink); }
+.narrative .glyph.next { color: var(--accent); }
+.narrative .label { font-size: 12px; color: var(--ink-3); white-space: nowrap; padding-top: 1px; }
+.narrative .text { flex: 1; color: var(--ink); }
+.narrative .text.next { color: var(--ink-2); }
+
+/* 动作统计：files_modified 去重数 + tool_uses 聚合（mono，紧凑） */
+.tool-stats {
+  display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); align-items: baseline;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  padding: var(--s1) var(--s2);
+  background: var(--inset); border-radius: 6px;
+  margin-bottom: var(--s2);
+}
+.tool-stats .files b { color: var(--ink); font-weight: 600; }
+.tool-stats .tool b { color: var(--ink); font-weight: 600; }
+
+/* 类型分布条：时间线之下，纯色段 + 图例（回答“什么”，不抢第一眼） */
+.type-bar {
+  display: flex; height: 4px; border-radius: 2px; overflow: hidden;
+  background: var(--inset); margin: var(--s1) 0 6px;
+}
+.type-bar i { display: block; height: 100%; }
+.type-legend { font-size: 11px; color: var(--ink-3); margin-bottom: var(--s2); }
+.type-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.type-legend i:first-child { margin-left: 0; }
+
+/* ───────────────────────── 模块④：事件时间线 ───────────────────────── */
+.tl-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  border-top: 1px solid var(--border); padding-top: var(--s2); margin-bottom: var(--s1);
+}
+.tl-title { font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: .04em; }
+.tl-toggle {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+  background: none; border: none; cursor: pointer; padding: 0 2px;
+}
+.tl-toggle:hover { color: var(--accent); }
+
+.tl { list-style: none; }
+.tl-item { border-left: 2px solid var(--border); margin-left: 4px; }
+.tl-item + .tl-item { margin-top: 2px; }
+/* 每条事件 = details：收起时一行（时间+徽标+标题），展开显示 narrative 原文 */
+.tl-item details { border-radius: 0 6px 6px 0; }
+.tl-item details[open] { background: var(--inset); border-left-color: var(--border-strong); }
+.tl-item summary {
+  list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: var(--s1);
+  padding: 5px 8px 5px 12px; border-radius: 0 6px 6px 0;
+}
+.tl-item summary::-webkit-details-marker { display: none; }
+.tl-item summary::before {
+  content: "▸"; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  flex: none; width: 9px; transition: transform .12s ease; transform-origin: 40% 50%;
+}
+.tl-item details[open] summary::before { transform: rotate(90deg); }
+.tl-item summary:hover { background: var(--inset); }
+.tl-item details[open] summary:hover { background: transparent; }
+.tl-time { font-family: var(--mono); font-size: 12px; color: var(--ink-2); flex: none; }
+.tl-title-text { font-size: 13.5px; flex: 1; min-width: 0; }
+
+/* type 徽标：mono 小号、低饱和；discovery 最灰（占 62%，是证据链但已降级） */
+.type {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .03em;
+  border-radius: 4px; padding: 0 6px; line-height: 1.7; flex: none;
+}
+.type-bugfix    { color: var(--c-bugfix-ink);     background: var(--c-bugfix-bg); }
+.type-feature   { color: var(--c-feature-ink);    background: var(--c-feature-bg); }
+.type-decision  { color: var(--c-decision-ink);   background: var(--c-decision-bg); }
+.type-change    { color: var(--c-change-ink);     background: var(--c-change-bg); }
+.type-refactor  { color: var(--c-refactor-ink);   background: var(--c-refactor-bg); }
+.type-discovery { color: var(--c-discovery-ink);  background: var(--c-discovery-bg); }
+.type-sensitive { color: var(--c-sensitive-ink);  background: var(--c-sensitive-bg); }
+
+/* discovery 降级行：标题变灰，视觉权重低于实体事件 */
+.tl-item.is-discovery summary .tl-title-text { color: var(--ink-2); }
+.tl-item.is-discovery summary::before { color: var(--ink-3); }
+
+/* ───────────────────────── 模块⑤：条目详情（narrative 原文） ───────────────────────── */
+.entry-detail { padding: var(--s1) var(--s2) var(--s2) 40px; }
+.entry-detail .narrative-raw {
+  font-size: 13px; line-height: 1.7; color: var(--ink);
+  padding: var(--s1) var(--s2); background: var(--card);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.entry-detail .facts {
+  list-style: none; margin-top: var(--s1);
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  display: flex; flex-wrap: wrap; gap: 2px var(--s2);
+}
+.entry-detail .facts b { font-weight: 600; color: var(--ink-3); font-family: var(--sans); font-size: 11px; margin-right: 4px; }
+
+/* ───────────────────────── 模块⑦：敏感条目折叠 + 标记 ───────────────────────── */
+.tl-item.is-sensitive { border-left-color: var(--warn-border); }
+.tl-item.is-sensitive details { border: 1px dashed var(--warn-border); border-radius: 6px; margin-left: 2px; }
+.tl-item.is-sensitive details[open] { background: var(--warn-bg); border-left: 3px solid var(--warn-ink); }
+.tl-item.is-sensitive summary { gap: 6px; }
+.tl-item.is-sensitive .lock {
+  font-size: 10.5px; color: var(--warn-ink); white-space: nowrap;
+  font-family: var(--sans); opacity: .85;
+}
+.tl-item.is-sensitive .tl-title-text { color: var(--warn-ink); }
+.sensitive-note { font-size: 11px; color: var(--warn-ink); opacity: .7; margin-top: 6px; }
+
+/* ───────────────────────── 模块⑥：空态示意 ───────────────────────── */
+.spec-divider {
+  display: flex; align-items: center; gap: var(--s2);
+  margin: var(--s4) 0 var(--s2); color: var(--ink-3);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+}
+.spec-divider::before, .spec-divider::after { content: ""; flex: 1; border-top: 1px dashed var(--border-strong); }
+.empty-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: var(--s4) var(--s3); text-align: center;
+}
+.empty-card .date { font-family: var(--mono); font-size: 15px; font-weight: 600; margin-bottom: var(--s1); }
+.empty-card .headline { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+.empty-card .sub { font-size: 13px; color: var(--ink-2); max-width: 30em; margin: 0 auto var(--s2); }
+.empty-card .status {
+  display: inline-flex; gap: 6px; align-items: center;
+  font-size: 12px; color: var(--c-feature-ink); background: var(--c-feature-bg);
+  border-radius: 4px; padding: 2px 10px;
+}
+.empty-card .status.warn { color: var(--warn-ink); background: var(--warn-bg); }
+
+/* ───────────────────────── 页脚 ───────────────────────── */
+.foot {
+  margin-top: var(--s4); font-size: 11.5px; color: var(--ink-3); text-align: center;
+}
+.foot .mono { font-size: 11px; }
+
+@media (max-width: 560px) {
+  body { padding: var(--s2) var(--s1) 64px; }
+  .project { padding: var(--s2); }
+  .day-headline { font-size: 18px; }
+  .day-headline .n { font-size: 20px; }
+  .entry-detail { padding-left: var(--s2); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══ 模块① 顶栏：来源声明 + 日期导航 + 天级头条 ═══ -->
+  <header class="site-head">
+    <div class="wordmark"><b>日报</b> · daily-report</div>
+    <div class="src-note">数据来源：claude-mem（只读）</div>
+  </header>
+
+  <nav class="date-nav" aria-label="日期导航">
+    <a class="arrow" href="#" title="前一天">‹ 11-14</a>
+    <span class="today mono">2026-11-15</span><span class="weekday">周日</span>
+    <a class="arrow" href="#" title="后一天">11-16 ›</a>
+  </nav>
+
+  <h1 class="day-headline">
+    今天 <span class="n">4</span> 个项目<span class="sep">·</span><span class="n">8</span> 个会话<span class="sep">·</span><details><summary><span class="n">12</span> 处变更</summary>
+      <div class="count-panel">
+        <ul>
+          <li><b>honour</b><span class="mono">6 files</span><span>services/export/orders.ts, lib/csv-writer.ts, routes/orders.ts, views/order-list.vue, package.json, tests/export.spec.ts</span></li>
+          <li><b>dist</b><span class="mono">3 files</span><span>build/pack.ts, scripts/ci.yml, src/main.ts</span></li>
+          <li><b>glance</b><span class="mono">2 files</span><span>src/tray.ts, src/screen-metrics.ts</span></li>
+          <li><b>chain-review</b><span class="mono">1 file</span><span>prompts/review-v3.md</span></li>
+        </ul>
+      </div>
+    </details><span class="sep">·</span><details><summary><span class="n">13</span> 条事件</summary>
+      <div class="count-panel">
+        <ul>
+          <li><b>honour</b><span class="mono">7 条</span><span>bugfix×1 · feature×1 · decision×1 · refactor×1 · discovery×2 · sensitive×1</span></li>
+          <li><b>dist</b><span class="mono">3 条</span><span>feature×1 · change×1 · discovery×1</span></li>
+          <li><b>glance</b><span class="mono">1 条</span><span>bugfix×1</span></li>
+          <li><b>chain-review</b><span class="mono">2 条</span><span>discovery×1 · decision×1</span></li>
+        </ul>
+      </div>
+    </details><span class="sep">·</span><span class="n">2</span> 个 bugfix
+  </h1>
+
+  <!-- ═══ 模块② 健康声明横幅：数据缺失是常态，先声明再给内容 ═══ -->
+  <aside class="health" role="status">
+    <span class="tag">采集中断</span>
+    <p>最后一条记录为 <span class="time">11-13 14:22</span>，距今约 46 小时——今天的日报可能不完整。
+    <span class="why">判据：最后一条 observation 时间 + observer-health.json</span></p>
+  </aside>
+
+  <main>
+
+    <!-- ═══ 模块③ 项目分节 honour：叙事段 + 动作统计 + 类型分布条 + 模块④时间线 ═══ -->
+    <section class="project" aria-labelledby="proj-honour">
+      <div class="proj-head">
+        <h2 class="proj-name" id="proj-honour">honour</h2>
+        <span class="proj-meta"><span class="mono">4</span> 会话 · <span class="mono">09:02–17:30</span></span>
+      </div>
+
+      <!-- 叙事段：session_summaries 原文搬运，零改写 -->
+      <div class="narrative">
+        <div class="row"><span class="glyph done">✓</span><span class="label">完成了什么</span>
+          <span class="text">完成订单导出 CSV 的整条链路：后端流式写出、列表页下载入口、空批次降级为仅表头的空文件；顺带修掉导出分页时游标复用导致的重复行，并抽出公共 CSV 写出函数。</span></div>
+        <div class="row"><span class="glyph next">→</span><span class="label">下一步</span>
+          <span class="text next">导出列配置持久化；导出接口灰度 5% 流量观察内存占用。</span></div>
+      </div>
+
+      <!-- 动作统计：会话数 + files_modified 去重数为主指标 -->
+      <div class="tool-stats">
+        <span class="files"><b>6</b> 个文件</span>
+        <span class="tool">Edit<b>×12</b></span>
+        <span class="tool">Bash<b>×8</b></span>
+        <span class="tool">Read<b>×31</b></span>
+        <span class="tool">Grep<b>×6</b></span>
+      </div>
+
+      <!-- 类型分布条：放时间线之下，第一眼是文字不是图表 -->
+      <div class="type-bar" aria-hidden="true">
+        <i style="width:28.6%; background:var(--c-discovery-bg); outline:1px solid var(--c-discovery-ink); outline-offset:-1px;"></i>
+        <i style="width:14.3%; background:var(--c-bugfix-bg); outline:1px solid var(--c-bugfix-ink); outline-offset:-1px;"></i>
+        <i style="width:14.3%; background:var(--c-feature-bg); outline:1px solid var(--c-feature-ink); outline-offset:-1px;"></i>
+        <i style="width:14.3%; background:var(--c-decision-bg); outline:1px solid var(--c-decision-ink); outline-offset:-1px;"></i>
+        <i style="width:14.3%; background:var(--c-refactor-bg); outline:1px solid var(--c-refactor-ink); outline-offset:-1px;"></i>
+        <i style="width:14.2%; background:var(--c-sensitive-bg); outline:1px solid var(--c-sensitive-ink); outline-offset:-1px;"></i>
+      </div>
+      <div class="type-legend">7 条事件：<i style="background:var(--c-discovery-ink);"></i>discovery×2<i style="background:var(--c-bugfix-ink);"></i>bugfix<i style="background:var(--c-feature-ink);"></i>feature<i style="background:var(--c-decision-ink);"></i>decision<i style="background:var(--c-refactor-ink);"></i>refactor<i style="background:var(--c-sensitive-ink);"></i>sensitive</div>
+
+      <!-- ═══ 模块④ 事件时间线（discovery 默认折叠，即所有 details 默认收起） ═══ -->
+      <div class="tl-head">
+        <span class="tl-title">事件时间线</span>
+        <span><button class="tl-toggle" data-scope="tl-honour" data-open="1">展开全部</button> · <button class="tl-toggle" data-scope="tl-honour" data-open="0">收起</button></span>
+      </div>
+      <ul class="tl" id="tl-honour">
+
+        <li class="tl-item is-discovery">
+          <details>
+            <summary><time class="tl-time">09:14</time><span class="type type-discovery">discovery</span><span class="tl-title-text">claude-mem 有 schema_versions 表，迁移按版本号逐级执行</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">翻 claude-mem.db 时注意到 schema_versions 表：迁移逻辑按版本号逐级执行。这意味着读 adapter 只要 SELECT 明确列名、容忍缺列，就能跟着 schema 漂移走，不需要锁版本。</p>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">10:02</time><span class="type type-decision">decision</span><span class="tl-title-text">查询窗口归属改用 observation 自身时间戳</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">跨午夜会话如果按 session 开始时间归属，会把凌晨的观察算进前一天。决定按 observation.created_at_epoch 落到本地时区 [day 00:00, 24:00) 窗口，宁可同一会话拆到两天，也不让时间线出现时间倒挂。</p>
+              <ul class="facts"><li><b>文件</b>core/application/usecase/build-daily-report.ts</li></ul>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item is-sensitive">
+          <details>
+            <summary><time class="tl-time">15:47</time><span class="type type-sensitive">sensitive</span><span class="lock">已折叠 · 含敏感信息</span><span class="tl-title-text">调试日志中包含内部网关地址与临时 token</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">debug 日志打出了内部 API 网关的完整 URL 和一个 24 小时有效的临时 token。已确认 token 已过期、URL 未外传；原样保留在此作为回顾证据，导出/分享时须在管道中脱敏，不做 CSS 级隐藏。</p>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item is-discovery">
+          <details>
+            <summary><time class="tl-time">14:55</time><span class="type type-discovery">discovery</span><span class="tl-title-text">订单导出慢的根因是 N+1 查询，改 JOIN 后待验证</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">导出 5 万行时逐行查 customer 名称，EXPLAIN 显示 49,982 次相同查询；改为 JOIN 后本地压测从 42s 降到 3s（次日上线验证）。</p>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item">
+          <details open><!-- 默认展开一条，示意详情样式 -->
+            <summary><time class="tl-time">11:37</time><span class="type type-bugfix">bugfix</span><span class="tl-title-text">修复订单导出在空批次时的空指针</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">orders 导出在没有任何匹配行时直接对 result[0] 取字段，抛 TypeError 导致整个导出 500。改为空批次返回合法的空 CSV（仅表头），并补了一条回归用例。</p>
+              <ul class="facts"><li><b>文件</b>services/export/orders.ts</li><li><b>影响</b>/api/orders/export</li></ul>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">13:26</time><span class="type type-feature">feature</span><span class="tl-title-text">订单列表新增导出 CSV 入口</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">列表工具栏加导出按钮，走后端流式接口，前端 blob 下载；上限 10 万行，超出时提示缩小筛选范围而不是静默截断。</p>
+              <ul class="facts"><li><b>文件</b>views/order-list.vue, routes/orders.ts</li></ul>
+            </div>
+          </details>
+        </li>
+
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">17:03</time><span class="type type-refactor">refactor</span><span class="tl-title-text">抽取 orders 导出的公共写表函数</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">CSV 写出逻辑在导出接口和定时任务里各有一份，引号转义行为已经开始漂移；抽到 lib/csv-writer.ts 统一，两处调用点改为共用。</p>
+              <ul class="facts"><li><b>文件</b>lib/csv-writer.ts, services/export/orders.ts</li></ul>
+            </div>
+          </details>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ═══ 模块③④ 项目分节 dist ═══ -->
+    <section class="project" aria-labelledby="proj-dist">
+      <div class="proj-head">
+        <h2 class="proj-name" id="proj-dist">dist</h2>
+        <span class="proj-meta"><span class="mono">2</span> 会话 · <span class="mono">10:20–16:40</span></span>
+      </div>
+
+      <div class="narrative">
+        <div class="row"><span class="glyph done">✓</span><span class="label">完成了什么</span>
+          <span class="text">构建产物按 darwin/linux 平台拆分独立目录，CI 产物命名带上 arch；esbuild 升级到 0.25，替换两处废弃 API 写法。</span></div>
+        <div class="row"><span class="glyph next">→</span><span class="label">下一步</span>
+          <span class="text next">补 windows-arm 产物；核对升级后 sourcemap 体积变化。</span></div>
+      </div>
+
+      <div class="tool-stats">
+        <span class="files"><b>3</b> 个文件</span>
+        <span class="tool">Edit<b>×7</b></span>
+        <span class="tool">Bash<b>×11</b></span>
+        <span class="tool">Read<b>×14</b></span>
+      </div>
+
+      <div class="type-bar" aria-hidden="true">
+        <i style="width:33.3%; background:var(--c-discovery-bg); outline:1px solid var(--c-discovery-ink); outline-offset:-1px;"></i>
+        <i style="width:33.3%; background:var(--c-feature-bg); outline:1px solid var(--c-feature-ink); outline-offset:-1px;"></i>
+        <i style="width:33.4%; background:var(--c-change-bg); outline:1px solid var(--c-change-ink); outline-offset:-1px;"></i>
+      </div>
+      <div class="type-legend">3 条事件：<i style="background:var(--c-discovery-ink);"></i>discovery<i style="background:var(--c-feature-ink);"></i>feature<i style="background:var(--c-change-ink);"></i>change</div>
+
+      <div class="tl-head">
+        <span class="tl-title">事件时间线</span>
+        <span><button class="tl-toggle" data-scope="tl-dist" data-open="1">展开全部</button> · <button class="tl-toggle" data-scope="tl-dist" data-open="0">收起</button></span>
+      </div>
+      <ul class="tl" id="tl-dist">
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">10:41</time><span class="type type-feature">feature</span><span class="tl-title-text">构建产物按平台拆分目录</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">dist/darwin-arm64、dist/linux-x64 各自独立目录，CI 产物命名改为 platform-arch；打包脚本从单个 zip 改为按平台归档，回滚时可以只撤一个平台。</p>
+              <ul class="facts"><li><b>文件</b>build/pack.ts, scripts/ci.yml</li></ul>
+            </div>
+          </details>
+        </li>
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">12:15</time><span class="type type-change">change</span><span class="tl-title-text">esbuild 升级到 0.25</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">锁定版本 0.21 → 0.25；两处废弃 API（platform: 'node' 旧写法）替换为新写法，产物路径约定同步更新，CI 全绿。</p>
+              <ul class="facts"><li><b>文件</b>package.json, src/main.ts</li></ul>
+            </div>
+          </details>
+        </li>
+        <li class="tl-item is-discovery">
+          <details>
+            <summary><time class="tl-time">16:02</time><span class="type type-discovery">discovery</span><span class="tl-title-text">esbuild 0.25 起 sourcemap 默认内联</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">升级后发现 .map 文件消失，排查确认 0.25 起 sourcemap 默认 inline；显式关闭以保持产物目录干净，体积待次日核对。</p>
+            </div>
+          </details>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ═══ 模块③④ 项目分节 glance ═══ -->
+    <section class="project" aria-labelledby="proj-glance">
+      <div class="proj-head">
+        <h2 class="proj-name" id="proj-glance">glance</h2>
+        <span class="proj-meta"><span class="mono">1</span> 会话 · <span class="mono">19:40–20:35</span></span>
+      </div>
+
+      <div class="narrative">
+        <div class="row"><span class="glyph done">✓</span><span class="label">完成了什么</span>
+          <span class="text">修复高分屏下托盘菜单错位：根因是菜单定位用了固定像素换算菜单栏高度，改为按光标所在 screen 的 workArea 实时计算。</span></div>
+        <div class="row"><span class="glyph next">→</span><span class="label">下一步</span>
+          <span class="text next">托盘菜单补键盘导航。</span></div>
+      </div>
+
+      <div class="tool-stats">
+        <span class="files"><b>2</b> 个文件</span>
+        <span class="tool">Edit<b>×4</b></span>
+        <span class="tool">Bash<b>×2</b></span>
+        <span class="tool">Read<b>×9</b></span>
+      </div>
+
+      <div class="type-bar" aria-hidden="true"><i style="width:100%; background:var(--c-bugfix-bg); outline:1px solid var(--c-bugfix-ink); outline-offset:-1px;"></i></div>
+      <div class="type-legend">1 条事件：<i style="background:var(--c-bugfix-ink);"></i>bugfix</div>
+
+      <div class="tl-head">
+        <span class="tl-title">事件时间线</span>
+        <span><button class="tl-toggle" data-scope="tl-glance" data-open="1">展开全部</button> · <button class="tl-toggle" data-scope="tl-glance" data-open="0">收起</button></span>
+      </div>
+      <ul class="tl" id="tl-glance">
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">20:18</time><span class="type type-bugfix">bugfix</span><span class="tl-title-text">托盘菜单在高分屏下错位</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">菜单 y 坐标写死了 22px 菜单栏高度，2x 屏上正好偏出一半；改用 screen.getCursorScreenPoint() + workArea 计算实际可用区域，多显示器下逐一验证。</p>
+              <ul class="facts"><li><b>文件</b>src/tray.ts, src/screen-metrics.ts</li></ul>
+            </div>
+          </details>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ═══ 项目分节 chain-review：无会话摘要 → 降级为标题列表（虚线卡片） ═══ -->
+    <section class="project degraded" aria-labelledby="proj-chain">
+      <div class="proj-head">
+        <h2 class="proj-name" id="proj-chain">chain-review</h2>
+        <span class="proj-meta"><span class="mono">1</span> 会话 · <span class="mono">19:00–21:30</span></span>
+        <span class="proj-flag">无会话摘要 · 降级为标题列表</span>
+      </div>
+
+      <div class="tool-stats">
+        <span class="files"><b>1</b> 个文件</span>
+        <span class="tool">Edit<b>×3</b></span>
+        <span class="tool">Read<b>×5</b></span>
+      </div>
+
+      <ul class="tl" id="tl-chain">
+        <li class="tl-item is-discovery">
+          <details>
+            <summary><time class="tl-time">19:22</time><span class="type type-discovery">discovery</span><span class="tl-title-text">评审提示词的注入点在 tool_result 之后</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">实测发现把评审指令拼在 tool_result 之后命中率最高，拼在 system 里会被后续工具输出稀释。</p>
+            </div>
+          </details>
+        </li>
+        <li class="tl-item">
+          <details>
+            <summary><time class="tl-time">21:05</time><span class="type type-decision">decision</span><span class="tl-title-text">评审结论固定三段式：风险 / 建议 / 阻断项</span></summary>
+            <div class="entry-detail">
+              <p class="narrative-raw">自由格式的评审结论没法做跨天对比，固定为风险/建议/阻断项三段，阻断项必须给文件与行号。</p>
+              <ul class="facts"><li><b>文件</b>prompts/review-v3.md</li></ul>
+            </div>
+          </details>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ═══ 模块⑥ 空态示意（评审样张：空日期也必须有解释，绝不渲染无说明的空白） ═══ -->
+    <div class="spec-divider">空态样式 · 空日期渲染样张</div>
+
+    <section class="empty-card" aria-label="空态示意">
+      <div class="date mono">2026-11-16 周一</div>
+      <p class="headline">这一天没有记录到任何事件</p>
+      <p class="sub">claude-mem 在此日期没有写入 observation。空白可能是确实没有工作，也可能只是采集中断——以右侧采集状态为准。</p>
+      <span class="status"><span class="mono">●</span> 采集正常 · 最后记录 11-15 17:03</span>
+      <br>
+      <span class="status warn" style="margin-top:8px;"><span class="mono">▲</span> 采集中断 · 最后记录 11-13 14:22（另一变体）</span>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <span class="mono">daily-report v0.1</span> · 只读消费本地记忆数据 · 本页所有数字均可在 claude-mem.db 中验证
+  </footer>
+</div>
+
+<script>
+// 少量原生 JS：仅「展开/收起全部」辅助评审，逻辑与 F4 的纯 SSR 不冲突（无 JS 时 details 原生可用）
+document.querySelectorAll('.tl-toggle').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var scope = document.getElementById(btn.dataset.scope);
+    if (!scope) return;
+    scope.querySelectorAll('details').forEach(function (d) { d.open = btn.dataset.open === '1'; });
+  });
+});
+</script>
+</body>
+</html>
