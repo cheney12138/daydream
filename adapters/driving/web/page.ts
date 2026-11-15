@@ -90,12 +90,16 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.65 var(--sans); pa
 a { color: inherit; }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-/* 模块①：顶栏 + 日期导航 */
-.site-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--s3); }
+/* 模块①：顶栏 + 日期导航 + 项目锚点（sticky） */
+.site-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--s2); }
 .wordmark { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--ink-2); }
 .wordmark b { color: var(--ink); font-weight: 600; }
 .src-note { font-size: 12px; color: var(--ink-3); }
-.date-nav { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+.nav-sticky { position: sticky; top: 0; z-index: 10; background: var(--bg); padding: var(--s1) 0; margin-bottom: var(--s2); }
+.date-nav { display: flex; align-items: center; gap: var(--s2); }
+.proj-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.proj-nav a { font-family: var(--mono); font-size: 12px; text-decoration: none; color: var(--ink-2); background: var(--card); border: 1px solid var(--border); border-radius: 99px; padding: 1px 10px; }
+.proj-nav a:hover { color: var(--accent); border-color: var(--accent); }
 .date-nav .arrow { font-family: var(--mono); font-size: 15px; text-decoration: none; color: var(--ink-2); padding: 2px 8px; border-radius: 6px; }
 .date-nav .arrow:hover { background: var(--card); color: var(--ink); }
 .date-nav .today { font-family: var(--mono); font-size: 17px; font-weight: 600; letter-spacing: .02em; }
@@ -157,6 +161,10 @@ a { color: inherit; }
 /* 模块④：事件时间线 */
 .tl-head { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--border); padding-top: var(--s2); margin-bottom: var(--s1); }
 .tl-title { font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: .04em; }
+.tl-more { margin-top: var(--s1); padding-top: var(--s1); border-top: 1px dashed var(--border); font-size: 12.5px; }
+.tl-more a { color: var(--accent); text-decoration: none; font-weight: 500; }
+.tl-more a:hover { text-decoration: underline; }
+.tl-more span { color: var(--ink-3); font-size: 11.5px; margin-left: var(--s1); }
 .tl-toggle { font-family: var(--mono); font-size: 11px; color: var(--ink-3); background: none; border: none; cursor: pointer; padding: 0 2px; }
 .tl-toggle:hover { color: var(--accent); }
 .tl { list-style: none; }
@@ -358,7 +366,33 @@ function typeBarHtml(project: ProjectSection): string {
   <div class="type-legend">${total} 条事件：${legend}</div>`;
 }
 
-/** 模块④⑤⑦：事件时间线（默认全部收起；discovery 灰度降级；sensitive 琥珀虚线 + lock） */
+/** 关键事件：非 discovery 类型，最多 KEY_EVENT_MAX 条（时间线倒序取最新） */
+const KEY_EVENT_MAX = 6;
+function keyEvents(project: ProjectSection): TimelineItem[] {
+  const important = project.timeline.filter((t) => t.type !== 'discovery');
+  return important.slice(-KEY_EVENT_MAX).reverse();
+}
+
+/** 摘要版时间线：只渲染关键事件 + 「查看全部」链接（长列表去全量页） */
+function timelineSummaryHtml(project: ProjectSection, index: number, date: string): string {
+  const important = project.timeline.filter((t) => t.type !== 'discovery');
+  const keys = keyEvents(project);
+  if (important.length === 0 && project.timeline.length === 0) return '';
+  const items = keys.map((t) => timelineItemHtml(t)).join('');
+  const omitted = project.timeline.length - keys.length;
+  const moreLink =
+    omitted > 0
+      ? `<div class="tl-more"><a href="/day/${esc(date)}/full#proj-${index}">查看全部 ${project.timeline.length} 条事件 →</a><span>（含 ${project.timeline.filter((t) => t.type === 'discovery').length} 条 discovery）</span></div>`
+      : '';
+  return `
+  <div class="tl-head">
+    <span class="tl-title">关键事件${important.length > 0 ? ` <span class="mono">${important.length}</span>` : ''}</span>
+  </div>
+  <ul class="tl">${items}</ul>
+  ${moreLink}`;
+}
+
+/** 模块④⑤⑦：事件时间线（全量页用；默认全部收起；discovery 灰度降级；sensitive 琥珀虚线 + lock） */
 function timelineHtml(project: ProjectSection, id: string): string {
   if (project.timeline.length === 0) return '';
   const items = project.timeline.map((t) => timelineItemHtml(t)).join('');
@@ -394,8 +428,8 @@ function timelineItemHtml(t: TimelineItem): string {
   </li>`;
 }
 
-/** 模块③：项目分节卡片 */
-function projectHtml(project: ProjectSection, index: number): string {
+/** 模块③：项目分节卡片（摘要版：叙事 + 统计 + 关键事件，长时间线去全量页） */
+function projectHtml(project: ProjectSection, index: number, date: string): string {
   const degraded = project.summaries.length === 0;
   const classes = degraded ? 'project degraded' : 'project';
   const flag = degraded ? '<span class="proj-flag">无会话摘要 · 降级为标题列表</span>' : '';
@@ -414,7 +448,7 @@ function projectHtml(project: ProjectSection, index: number): string {
     ${narrativeHtml(project)}
     ${toolStatsHtml(project)}
     ${typeBarHtml(project)}
-    ${timelineHtml(project, `tl-p${index}`)}
+    ${timelineSummaryHtml(project, index, date)}
   </section>`;
 }
 
@@ -436,21 +470,33 @@ function emptyHtml(report: DailyReport): string {
 
 /* ───────────────────────── 页面骨架 ───────────────────────── */
 
-export function renderDayPage(report: DailyReport): string {
+function navBarHtml(report: DailyReport): string {
   const d = report.date;
   const prev = shiftDate(d, -1);
   const next = shiftDate(d, 1);
+  const chips = report.projects
+    .map((p, i) => `<a href="#proj-${i}">${esc(p.project)}</a>`)
+    .join('');
+  return `
+  <div class="nav-sticky">
+    <nav class="date-nav" aria-label="日期导航">
+      <a class="arrow" href="${dayHref(prev)}" title="前一天">‹ ${esc(shortDate(prev))}</a>
+      <span class="today mono">${esc(d)}</span><span class="weekday">${esc(weekdayOf(d))}</span>
+      <a class="arrow" href="${dayHref(next)}" title="后一天">${esc(shortDate(next))} ›</a>
+      <a class="arrow" href="/" title="最新有数据的日期">最新</a>
+    </nav>
+    ${report.projects.length > 1 ? `<nav class="proj-nav" aria-label="项目导航">${chips}</nav>` : ''}
+  </div>`;
+}
 
-  const body = report.empty
-    ? emptyHtml(report)
-    : report.projects.map((p, i) => projectHtml(p, i)).join('');
-
+function pageShell(report: DailyReport, body: string, titleSuffix: string, backLink: string): string {
+  const d = report.date;
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>日报 · ${esc(d)} · daily-report</title>
+<title>日报 · ${esc(d)}${esc(titleSuffix)} · daily-report</title>
 <style>${STYLE}</style>
 </head>
 <body>
@@ -458,22 +504,12 @@ export function renderDayPage(report: DailyReport): string {
 
   <header class="site-head">
     <div class="wordmark"><b>日报</b> · daily-report</div>
-    <div class="src-note">数据来源：claude-mem（只读）</div>
+    <div class="src-note">${backLink}</div>
   </header>
 
-  <nav class="date-nav" aria-label="日期导航">
-    <a class="arrow" href="${dayHref(prev)}" title="前一天">‹ ${esc(shortDate(prev))}</a>
-    <span class="today mono">${esc(d)}</span><span class="weekday">${esc(weekdayOf(d))}</span>
-    <a class="arrow" href="${dayHref(next)}" title="后一天">${esc(shortDate(next))} ›</a>
-    <a class="arrow" href="/" title="最新有数据的日期">最新</a>
-  </nav>
+  ${navBarHtml(report)}
 
-  ${report.empty ? '' : headlineHtml(report)}
-  ${healthHtml(report)}
-
-  <main>
-${body}
-  </main>
+  ${body}
 
   <footer class="foot">
     <span class="mono">daily-report v0.1</span> · 只读消费本地记忆数据 · 本页所有数字均可在 claude-mem.db 中验证 · 生成于 ${esc(report.generatedAt)}
@@ -492,4 +528,30 @@ document.querySelectorAll('.tl-toggle').forEach(function (btn) {
 </script>
 </body>
 </html>`;
+}
+
+/** 日报页（摘要版）：头条 + 健康 + 项目叙事 + 关键事件；全量时间线在全量页 */
+export function renderDayPage(report: DailyReport): string {
+  const body = report.empty
+    ? `${report.empty ? '' : headlineHtml(report)}\n${healthHtml(report)}\n  <main>\n${emptyHtml(report)}\n  </main>`
+    : `  ${headlineHtml(report)}\n  ${healthHtml(report)}\n  <main>\n${report.projects.map((p, i) => projectHtml(p, i, report.date)).join('\n')}\n  </main>`;
+  return pageShell(report, body, '', '数据来源：claude-mem（只读）');
+}
+
+/** 全量页：完整事件时间线（从摘要页「查看全部」进入） */
+export function renderFullPage(report: DailyReport): string {
+  const sections = report.projects
+    .map(
+      (p, i) => `
+  <section class="project" aria-labelledby="proj-${i}">
+    <div class="proj-head">
+      <h2 class="proj-name" id="proj-${i}">${esc(p.project)}</h2>
+      <span class="proj-meta"><span class="mono">${p.timeline.length}</span> 条事件</span>
+    </div>
+    ${timelineHtml(p, `tl-p${i}`)}
+  </section>`,
+    )
+    .join('\n');
+  const body = `  ${headlineHtml(report)}\n  ${healthHtml(report)}\n  <main>\n${sections}\n  </main>`;
+  return pageShell(report, body, ' · 全量', `<a href="${dayHref(report.date)}" style="color:var(--accent);text-decoration:none">‹ 返回日报摘要</a>`);
 }

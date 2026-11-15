@@ -3,14 +3,15 @@
  *
  * 路由：
  *   GET /                → 最新有数据日期的日报页（直接 200 渲染，便于 curl 验收）
- *   GET /day/:date       → 指定日期日报页
+ *   GET /day/:date       → 指定日期日报页（摘要版）
+ *   GET /day/:date/full  → 指定日期全量事件页
  *   GET /api/day/:date   → JSON（api.ts）
  *   GET /api/health      → JSON（最新数据日期）
  */
 import { createServer, type Server } from 'node:http';
 import type { ReportQueries } from '../../../core/application/port/driving/report-queries.js';
 import { handleApiRequest } from './api.js';
-import { renderDayPage } from './page.js';
+import { renderDayPage, renderFullPage } from './page.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -55,6 +56,14 @@ export function startServer({ port = 17777, host = '127.0.0.1', queries }: Serve
         const date = dayMatch[1]!;
         const report = await queries.getDay(date);
         html(res, 200, renderDayPage(report));
+        return;
+      }
+
+      const fullMatch = /^\/day\/(\d{4}-\d{2}-\d{2})\/full$/.exec(pathname);
+      if (fullMatch) {
+        const date = fullMatch[1]!;
+        const report = await queries.getDay(date);
+        html(res, 200, renderFullPage(report));
         return;
       }
 
